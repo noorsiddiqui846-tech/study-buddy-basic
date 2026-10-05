@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Buddy Basic</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Loading the worker on the page makes PDF.js run without a background worker,
+     which browsers block when this file is opened by double-clicking (file://) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f5fb; --panel: #fff; --ink: #1f2140; --muted: #6b6f8e; --line: #e4e6f2;
+    --accent: #5b5bd6; --accent-soft: #ecebff;
+    --good: #1f9d55; --good-soft: #e3f6ea; --bad: #d64545; --bad-soft: #fde8e8;
+  }
+  :root[data-theme="dark"] {
+    --bg: #14151f; --panel: #1e2030; --ink: #e6e7f2; --muted: #9a9dbb; --line: #2f3247;
+    --accent: #7b7bf0; --accent-soft: #2b2b52;
+    --good: #4cc47e; --good-soft: #17352a; --bad: #f07070; --bad-soft: #3d1f24;
+    color-scheme: dark;
+  }
+  :root[data-theme="dark"] mark { color: #1f2140; }
+  .theme-btn { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; width: 36px; height: 36px; font-size: 1.1rem; line-height: 1; flex: none; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h2, h3 { margin: 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+
+  /* Top bar */
+  .topbar {
+    display: flex; align-items: center; gap: 16px; padding: 10px 18px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .brand { font-weight: 700; font-size: 1.15rem; white-space: nowrap; }
+  .doc-title { flex: 1; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search { display: flex; width: min(300px, 40vw); }
+  .search input {
+    flex: 1; min-width: 0; padding: 7px 12px; border: 1px solid var(--line);
+    border-radius: 999px 0 0 999px; background: var(--bg); outline: none;
+  }
+  .search input:focus { border-color: var(--accent); background: var(--panel); }
+  .search button {
+    padding: 0 12px; border: 1px solid var(--line); border-left: 0;
+    border-radius: 0 999px 999px 0; background: var(--accent-soft);
+  }
+
+  /* Layout */
+  .layout {
+    flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px;
+    gap: 14px; padding: 14px;
+  }
+  .col { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .panel h3 { font-size: .95rem; margin-bottom: 10px; }
+  .center { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 26px; display: block; }
+
+  .upload-btn {
+    display: block; text-align: center; padding: 11px; background: var(--accent); color: #fff;
+    border-radius: 10px; font-weight: 600; cursor: pointer;
+  }
+  .status { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
+  .status.error { color: var(--bad); }
+  .chapters { list-style: none; margin: 0; padding: 0; }
+  .chapters li { display: flex; gap: 8px; padding: 8px 10px; border-radius: 9px; cursor: pointer; font-size: .9rem; }
+  .chapters li:hover { background: var(--bg); }
+  .chapters li.active { background: var(--accent-soft); font-weight: 600; }
+  .chapters .pages { margin-left: auto; color: var(--muted); font-size: .75rem; white-space: nowrap; }
+  .chapters .sum-btn { border: 0; background: none; padding: 0 2px; cursor: pointer; font-size: .9rem; opacity: .6; }
+  .chapters .sum-btn:hover, .chapters .sum-btn:focus-visible { opacity: 1; }
+  .chapters .best { color: var(--accent); font-size: .75rem; font-weight: 600; white-space: nowrap; }
+  .link-btn { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--muted); font-size: .8rem; text-decoration: underline; }
+  .link-btn:hover { color: var(--bad); }
+  .best-scores { margin: 12px 0 0; }
+  .new-best { display: inline-block; margin-top: 4px; padding: 3px 12px; border-radius: 999px; font-weight: 600;
+    background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+
+  .empty { text-align: center; max-width: 420px; margin: 12vh auto 0; }
+  .empty div { font-size: 56px; }
+  .empty p { color: var(--muted); line-height: 1.5; }
+
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin: 12px 0 18px; flex-wrap: wrap; }
+  .tab-btn {
+    border: 0; background: none; padding: 9px 14px; color: var(--muted); font-weight: 600;
+    border-bottom: 3px solid transparent;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .reader { max-width: 75ch; line-height: 1.75; }
+  .page-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 6px; }
+  .reader p { margin: 0 0 12px; }
+  mark { background: #ffe68a; border-radius: 3px; }
+  mark.current { background: #ffa94d; }
+  .search-nav { display: flex; align-items: center; gap: 6px; background: var(--accent-soft); border-radius: 10px; padding: 6px 10px; margin-bottom: 14px; font-size: .9rem; }
+  .search-nav[hidden] { display: none; }
+  .search-nav span { flex: 1; }
+  .search-nav button { border: 0; background: var(--panel); border-radius: 7px; padding: 3px 9px; }
+
+  .note { font-size: .8rem; color: var(--muted); background: var(--bg); border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 7px 14px; font-weight: 600; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .summary { max-width: 75ch; line-height: 1.7; }
+  .summary li { margin-bottom: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; font-size: .85rem; font-weight: 600; }
+
+  .question { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .question .q { font-weight: 600; margin-bottom: 10px; line-height: 1.5; }
+  .options { display: grid; gap: 8px; }
+  .option { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 9px; padding: 9px 12px; }
+  .option:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+  .option.correct { background: var(--good-soft); border-color: var(--good); font-weight: 600; }
+  .option.wrong { background: var(--bad-soft); border-color: var(--bad); }
+  .score { font-weight: 700; margin-bottom: 14px; }
+  .quiz-start { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .quiz-start select { margin-left: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .quiz-top { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px; }
+  .progress { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin-bottom: 16px; }
+  .progress div { height: 100%; background: var(--accent); transition: width .3s; }
+  .quiz-result { text-align: center; padding: 16px 0 20px; }
+  .quiz-result .big { font-size: 2.5rem; font-weight: 800; color: var(--accent); }
+  .good-text { color: var(--good); font-weight: 600; }
+  .bad-text { color: var(--bad); font-weight: 600; }
+  .quiz-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* Explanation card shown after answering. Colors are see-through tints of the
+     theme colors, so they blend into the background in light and dark mode. */
+  .explain {
+    margin-top: 12px; padding: 12px 14px; border-radius: 12px; font-size: .9rem; line-height: 1.6;
+    border: 1px solid var(--line); animation: pop-in .35s ease-out;
+  }
+  .explain.wrong {
+    background: var(--bad-soft);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--bad) 13%, transparent), color-mix(in srgb, var(--accent) 10%, transparent));
+    border-color: color-mix(in srgb, var(--bad) 28%, transparent);
+  }
+  .explain.right {
+    background: var(--good-soft);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--good) 13%, transparent), color-mix(in srgb, var(--accent) 8%, transparent));
+    border-color: color-mix(in srgb, var(--good) 28%, transparent);
+  }
+  .explain .head { font-weight: 700; margin-bottom: 4px; }
+  .explain.wrong .head { color: color-mix(in srgb, var(--bad) 80%, var(--ink)); }
+  .explain.right .head { color: color-mix(in srgb, var(--good) 80%, var(--ink)); }
+  .pill { display: inline-block; padding: 0 9px; border-radius: 999px; font-weight: 600; }
+  .pill.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: color-mix(in srgb, var(--bad) 75%, var(--ink)); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .pill.good { background: color-mix(in srgb, var(--good) 18%, transparent); color: color-mix(in srgb, var(--good) 75%, var(--ink)); }
+  .explain .quote {
+    margin-top: 10px; padding: 8px 12px; border-radius: 8px; color: var(--muted);
+    background: color-mix(in srgb, var(--panel) 55%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .explain .hl { color: var(--ink); font-weight: 600; border-radius: 4px; padding: 0 3px; background: color-mix(in srgb, var(--good) 20%, transparent); }
+  .option.wrong { animation: nudge .35s; }
+  @keyframes pop-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes nudge { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+  @media (prefers-reduced-motion: reduce) { .explain, .option.wrong { animation: none; } }
+
+  .flash-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .flashcard { perspective: 1200px; width: 100%; max-width: 520px; height: 270px; border: 0; background: none; padding: 0; }
+  .flashcard-inner { position: relative; width: 100%; height: 100%; transition: transform .5s; transform-style: preserve-3d; }
+  .flashcard.flipped .flashcard-inner { transform: rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0; backface-visibility: hidden; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding: 24px; border-radius: 18px;
+    text-align: center; font-size: 1.1rem; line-height: 1.5; overflow-y: auto;
+    box-shadow: 0 10px 28px rgba(60, 60, 140, .15);
+  }
+  .face small { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; opacity: .75; }
+  .front { background: linear-gradient(135deg, #5b5bd6, #8b7cf6); color: #fff; }
+  .back { background: var(--panel); border: 2px solid #d9d6ff; transform: rotateY(180deg); }
+  .flash-nav { display: flex; align-items: center; gap: 10px; }
+
+  .listen label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 8px; }
+  .listen select { display: block; width: 100%; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .player { display: flex; gap: 8px; margin: 10px 0 6px; }
+  .player button { flex: 1; padding: 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); font-weight: 600; }
+  .player .play { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .player button:disabled { opacity: .5; cursor: not-allowed; }
+  .found li { margin-bottom: 8px; font-size: .9rem; line-height: 1.5; }
+  .found ul { padding-left: 18px; }
+  .other { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 6px 10px; margin-top: 6px; font-size: .85rem; }
+
+  @media (max-width: 1000px) {
+    body { height: auto; }
+    .layout { grid-template-columns: 1fr; }
+    .col { overflow: visible; }
+    .topbar { flex-wrap: wrap; }
+    .search { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">📚 Study Buddy <span class="muted small">basic</span></div>
+  <div class="doc-title" id="docTitle"></div>
+  <form class="search" id="searchForm" autocomplete="off">
+    <input id="searchInput" type="search" placeholder="Search this chapter…">
+    <button type="submit" aria-label="Search">🔍</button>
+  </form>
+  <button type="button" class="theme-btn" id="themeBtn" aria-label="Switch to dark mode" title="Dark mode">☀</button>
+</header>
+
+<main class="layout">
+  <aside class="col">
+    <section class="panel">
+      <label class="upload-btn">
+        <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+        ⬆️ Upload PDF
+      </label>
+      <div class="status" id="status"></div>
+      <button type="button" class="link-btn" id="forgetBtn" hidden>🗑️ Forget this PDF</button>
+    </section>
+    <section class="panel">
+      <h3>Chapters</h3>
+      <ol class="chapters" id="chapterList"><li class="muted">No PDF yet.</li></ol>
+    </section>
+  </aside>
+
+  <section class="col center">
+    <div class="empty" id="empty">
+      <div>📄</div>
+      <h2>Upload a PDF to start</h2>
+      <p>You'll get the chapters, a short summary, practice MCQs, flashcards and a read-aloud button.
+        Everything runs in your browser, with no AI and no account.</p>
+    </div>
+    <div id="workspace" hidden>
+      <h2 id="chapterTitle"></h2>
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="read">📖 Read</button>
+        <button class="tab-btn" data-tab="summary">📝 Summary</button>
+        <button class="tab-btn" data-tab="mcqs">❓ MCQs</button>
+        <button class="tab-btn" data-tab="flashcards">🃏 Flashcards</button>
+        <button class="tab-btn" data-tab="quiz">🎯 Quiz</button>
+      </nav>
+      <div class="tab" id="tab-read">
+        <div class="search-nav" id="searchNav" hidden>
+          <span id="searchCount"></span>
+          <button type="button" id="prevMatch">↑</button>
+          <button type="button" id="nextMatch">↓</button>
+          <button type="button" id="clearSearch">✕</button>
+        </div>
+        <article class="reader" id="reader"></article>
+      </div>
+      <div class="tab" id="tab-summary" hidden></div>
+      <div class="tab" id="tab-mcqs" hidden></div>
+      <div class="tab" id="tab-flashcards" hidden></div>
+      <div class="tab" id="tab-quiz" hidden></div>
+    </div>
+  </section>
+
+  <aside class="col">
+    <section class="panel listen">
+      <h3>🎧 Listen</h3>
+      <label>Read out
+        <select id="listenSource">
+          <option value="summary">Summary</option>
+          <option value="chapter">Whole chapter</option>
+        </select>
+      </label>
+      <label>Speed
+        <select id="listenRate">
+          <option value="0.75">0.75×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+        </select>
+      </label>
+      <div class="player">
+        <button type="button" class="play" id="playBtn" disabled>▶ Play</button>
+        <button type="button" id="stopBtn" disabled>⏹ Stop</button>
+      </div>
+      <div class="muted small" id="listenStatus">Open a chapter to listen.</div>
+    </section>
+    <section class="panel">
+      <h3>🔍 Search results</h3>
+      <div class="found" id="found">
+        <p class="muted small">Search for a word using the bar at the top. It gets highlighted in the
+          chapter, and the sentences that mention it show up here.</p>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let pages = [];     // text of every page
+let chapters = [];  // {title, start, end} (1-based page numbers)
+let current = 0;    // open chapter
+let tab = "read";
+let query = "";
+
+// Small helper that builds elements; text always goes in as text, never HTML
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== false && kid !== undefined) e.append(kid);
+  return e;
+}
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// ------------------------------------------------------------ Dark mode ---
+
+function setTheme(dark) {
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const b = $("themeBtn");
+  b.textContent = dark ? "☾" : "☀";
+  b.title = dark ? "Light mode" : "Dark mode";
+  b.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+}
+let savedTheme = null;
+try { savedTheme = localStorage.getItem("theme"); } catch {}
+setTheme(savedTheme ? savedTheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches);
+$("themeBtn").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme !== "dark";
+  setTheme(dark);
+  try { localStorage.setItem("theme", dark ? "dark" : "light"); } catch {}
+});
+
+// ---------------------------------------------------------- Reading PDFs ---
+
+$("fileInput").addEventListener("change", e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (file) openPdf(file);
+});
+
+async function openPdf(file) {
+  const status = $("status");
+  status.className = "status";
+  if (!window.pdfjsLib) {
+    status.className = "status error";
+    status.textContent = "The PDF reader couldn't load. Check your internet connection and reload the page.";
+    return;
+  }
+  status.textContent = "Reading your PDF…";
+  try {
+    // CMaps and standard fonts let PDF.js decode text in CID/non-embedded fonts
+    // (common in Word/Docs exports); without them those pages come back empty
+    const pdf = await pdfjsLib.getDocument({
+      data: await file.arrayBuffer(),
+      cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/",
+    }).promise;
+    pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const content = await (await pdf.getPage(i)).getTextContent();
+      pages.push(pageText(content.items));
+      status.textContent = `Reading page ${i} of ${pdf.numPages}…`;
+    }
+    if (!/\S/.test(pages.join(""))) {
+      status.className = "status error";
+      status.textContent = "This PDF has no selectable text (it may be scanned pictures), so it can't be read.";
+      return;
+    }
+    chapters = await findChapters(pdf);
+    const name = file.name.replace(/\.pdf$/i, "");
+    bookKey = `${file.name}|${pdf.numPages}`;
+    store.remove("book");
+    const saved = store.set("book", { name, key: bookKey, pages, chapters });
+    status.textContent = `✅ ${pdf.numPages} pages, ${chapters.length} chapters.` +
+      (saved ? "" : " (Too big to remember after a reload.)");
+    $("docTitle").textContent = name;
+    $("empty").hidden = true;
+    $("workspace").hidden = false;
+    $("forgetBtn").hidden = !saved;
+    openChapter(0);
+  } catch (err) {
+    status.className = "status error";
+    status.textContent = "Couldn't read that PDF. It may be damaged or password-protected.";
+  }
+}
+
+// Turn a page's text pieces into paragraphs, one per line of the result
+function pageText(items) {
+  // 1) Rebuild the printed lines. Pieces only get a space between them when the
+  //    PDF leaves a visible gap, so "white" "-" "headed" stays "white-headed".
+  const lines = [];
+  let line = null, endX = 0, size = 10;
+  for (const item of items) {
+    if (item.str) {
+      const [, , , , x, y] = item.transform;
+      if (item.height) size = item.height;
+      if (!line || Math.abs(y - line.y) > size / 2) {
+        line = { text: "", x, y, end: x };
+        lines.push(line);
+      } else if (x - endX > size * 0.15 && !/\s$/.test(line.text) && !/^\s/.test(item.str)) {
+        line.text += " ";
+      }
+      line.text += item.str;
+      endX = x + item.width;
+      line.end = Math.max(line.end, endX);
+    }
+    if (item.hasEOL) line = null;
+  }
+  for (const l of lines) l.text = l.text.replace(/\s+/g, " ").trim();
+  const kept = lines.filter(l => l.text);
+  if (!kept.length) return "";
+
+  // 2) Join lines that break in the middle of a sentence into paragraphs
+  const median = a => a.sort((x, y) => x - y)[Math.floor(a.length / 2)];
+  const fullWidth = median(kept.map(l => l.end - l.x));
+  const gaps = kept.slice(1).map((l, i) => kept[i].y - l.y).filter(g => g > 0);
+  const lineGap = gaps.length ? median(gaps) : Infinity;
+  const paras = [kept[0].text];
+  for (let i = 1; i < kept.length; i++) {
+    const prev = kept[i - 1], cur = kept[i], last = paras[paras.length - 1];
+    const gap = prev.y - cur.y;
+    const prevFull = prev.end - prev.x >= fullWidth * 0.85;
+    let join;
+    if (gap > lineGap * 1.5) join = false;                    // blank space between paragraphs
+    else if (/^([•▪◦·*]|\d+[.)]\s)/.test(cur.text)) join = false; // new list item
+    else if (/^[a-z,.;:)\]]/.test(cur.text)) join = true;      // carries on mid-sentence
+    else join = prevFull || /[,;(\-–—]$/.test(last);         // short line = heading or paragraph end
+    if (!join) paras.push(cur.text);
+    else if (/(^|\s)[a-z]+-$/.test(last) && /^[a-z]/.test(cur.text)) paras[paras.length - 1] = last.slice(0, -1) + cur.text; // "photo-" + "synthesis"
+    else if (/-$/.test(last)) paras[paras.length - 1] = last + cur.text; // keep "10th-century"
+    else paras[paras.length - 1] = last + " " + cur.text;
+  }
+
+  // 3) Tidy spacing some PDFs put around punctuation
+  return paras.map(p => p
+    .replace(/ +([.,;:!?%)\]}])/g, "$1")        // "word ." -> "word."
+    .replace(/([(\[{]) +/g, "$1")               // "( word" -> "(word"
+    .replace(/(\p{L}) - (?=\p{L})/gu, "$1-")    // "white - headed" -> "white-headed"
+    .replace(/ {2,}/g, " ")
+    .trim()).join("\n");
+}
+
+// 1) PDF bookmarks  2) pages starting with "Chapter/Unit/Lesson N"  3) 10-page sections
+async function findChapters(pdf) {
+  const found = [];
+  try {
+    const outline = (await pdf.getOutline()) || [];
+    for (const item of outline) {
+      const dest = typeof item.dest === "string" ? await pdf.getDestination(item.dest) : item.dest;
+      if (dest && dest[0]) found.push({ title: item.title.trim(), start: (await pdf.getPageIndex(dest[0])) + 1 });
+    }
+  } catch (e) { /* no usable bookmarks */ }
+
+  if (found.length < 2) {
+    found.length = 0;
+    pages.forEach((text, i) => {
+      const heading = text.split("\n").slice(0, 3)
+        .find(line => /^\s*(chapter|unit|lesson)\s+(\d+|[ivx]+)\b/i.test(line));
+      if (heading) found.push({ title: heading.trim().slice(0, 80), start: i + 1 });
+    });
+  }
+
+  let list = found
+    .filter(c => c.title && c.start >= 1 && c.start <= pages.length)
+    .sort((a, b) => a.start - b.start)
+    .filter((c, i, arr) => i === 0 || c.start !== arr[i - 1].start);
+
+  if (list.length < 2) {
+    list = [];
+    for (let s = 1; s <= pages.length; s += 10) {
+      list.push({ title: `Pages ${s}–${Math.min(s + 9, pages.length)}`, start: s });
+    }
+  } else if (list[0].start > 1) {
+    list.unshift({ title: "Introduction", start: 1 });
+  }
+  return list.map((c, i) => ({ ...c, end: i + 1 < list.length ? list[i + 1].start - 1 : pages.length }));
+}
+
+// ------------------------------------------------------------- Chapters ---
+
+function chapterPages() {
+  const ch = chapters[current];
+  const out = [];
+  for (let p = ch.start; p <= ch.end; p++) out.push({ page: p, text: pages[p - 1] });
+  return out;
+}
+const chapterText = () => chapterPages().map(p => p.text).join("\n");
+
+function openChapter(n) {
+  stopListening("Ready to listen.");
+  current = n;
+  renderChapterList();
+  $("chapterTitle").textContent = chapters[n].title;
+  $("playBtn").disabled = !("speechSynthesis" in window);
+
+  const study = makeStudyMaterial(chapterText());
+  renderSummary(study);
+  renderMcqs(study);
+  renderFlashcards(study);
+  renderQuiz();
+  renderReader();
+  if (query) showSearchResults();
+  showTab(tab);
+}
+
+// Chapter list, with each chapter's best quiz score
+function renderChapterList() {
+  const scores = scoresFor();
+  $("chapterList").replaceChildren(...chapters.map((ch, i) => {
+    const best = scores["ch" + i];
+    return el("li", { class: i === current ? "active" : "", onclick: () => openChapter(i) },
+      el("span", {}, ch.title),
+      el("span", { class: "pages" }, ch.start === ch.end ? `p. ${ch.start}` : `p. ${ch.start}–${ch.end}`),
+      best && el("span", { class: "best", title: "Best quiz score" }, `🏆 ${best.best}/${best.bestTotal}`),
+      el("button", { type: "button", class: "sum-btn", title: "Show summary", "aria-label": `Summary of ${ch.title}`,
+        onclick: e => { e.stopPropagation(); tab = "summary"; openChapter(i); } }, "📝"));
+  }));
+}
+
+document.querySelectorAll(".tab-btn").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+function showTab(name) {
+  tab = name;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  for (const t of ["read", "summary", "mcqs", "flashcards", "quiz"]) $("tab-" + t).hidden = t !== name;
+  store.set("place", { current, tab });
+}
+
+// ------------------------------------------------------------- Saving ---
+// The last PDF's text and your quiz scores are kept in this browser, so they're
+// still there after a reload. Nothing is sent anywhere.
+
+const store = {
+  get(key) { try { return JSON.parse(localStorage.getItem("studyBuddy." + key)); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem("studyBuddy." + key, JSON.stringify(value)); return true; } catch { return false; } },
+  remove(key) { try { localStorage.removeItem("studyBuddy." + key); } catch {} },
+};
+let bookKey = "";  // file name + page count, so re-uploading the same PDF keeps its scores
+const scoresFor = () => (store.get("scores") || {})[bookKey] || {};
+
+// part is "ch0", "ch1", … or "book". Returns whether this beat the old best.
+function saveScore(part, correct, total) {
+  const all = store.get("scores") || {};
+  const book = all[bookKey] ||= {};
+  const prev = book[part];
+  const isBest = !prev || correct / total > prev.best / prev.bestTotal;
+  book[part] = { best: isBest ? correct : prev.best, bestTotal: isBest ? total : prev.bestTotal, last: correct, lastTotal: total };
+  store.set("scores", all);
+  return { isBest, first: !prev };
+}
+
+$("forgetBtn").addEventListener("click", () => {
+  if (!confirm("Forget this PDF and its quiz scores?")) return;
+  const all = store.get("scores") || {};
+  delete all[bookKey];
+  store.set("scores", all);
+  store.remove("book");
+  store.remove("place");
+  stopListening("Open a chapter to listen.");
+  pages = []; chapters = []; current = 0; tab = "read"; query = ""; bookKey = "";
+  $("searchInput").value = "";
+  $("found").replaceChildren(el("p", { class: "muted small" }, "Search for a word using the bar at the top."));
+  $("chapterList").replaceChildren(el("li", { class: "muted" }, "No PDF yet."));
+  $("docTitle").textContent = "";
+  $("workspace").hidden = true;
+  $("empty").hidden = false;
+  $("playBtn").disabled = true;
+  $("forgetBtn").hidden = true;
+  $("status").className = "status";
+  $("status").textContent = "Forgotten. Upload a PDF to start again.";
+});
+
+// ------------------------------------------ Summary / MCQs / flashcards ---
+// Simple rules, no AI: important words are the ones the chapter repeats most.
+
+const STOP = new Set(("a about above after again against all also am an and any are aren't as at be because been before " +
+  "being below between both but by can can't cannot could did do does doing down during each few for from further had " +
+  "has have having he her here hers herself him himself his how however i if in into is isn't it its itself just let " +
+  "like made make many may me might more most much must my myself no nor not now of off on once one only or other " +
+  "ought our ours ourselves out over own same she should so some such than that the their theirs them themselves then " +
+  "there these they this those through to too under until up upon us use used using very was we were what when where " +
+  "which while who whom why will with within without would you your yours yourself also another called each either " +
+  "every example first following given important known many means often page part second several shown since still " +
+  "take two three four five way ways well within chapter figure table unit lesson section").split(" "));
+
+// Headings and short list items are stand-alone lines that start with a capital,
+// number or bullet and have no ending full stop, like "Chapter 1: Plants". Lines
+// broken mid-sentence were already joined into paragraphs, so this doesn't throw
+// away real sentence pieces.
+const isHeading = line => /^\s*(chapter|unit|lesson)\b/i.test(line) ||
+  (line.trim().length < 60 && /^[\p{Lu}\d•▪◦·*]/u.test(line.trim()) && !/[.!?,;]$/.test(line.trim()));
+
+function makeStudyMaterial(text) {
+  const flat = text.split("\n").filter(line => !isHeading(line)).join(" ").replace(/\s+/g, " ");
+  const sentences = flat.split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 40 && s.length <= 300 && /[a-z]/.test(s));
+
+  // Count how often each meaningful word appears. Forms of the same word
+  // ("building", "buildings") are counted together as one word family.
+  const freq = {}, forms = {};
+  for (const w of flat.toLowerCase().match(/[a-z][a-z'-]{3,}/g) || []) {
+    if (STOP.has(w)) continue;
+    const k = stem(w);
+    freq[k] = (freq[k] || 0) + 1;
+    (forms[k] ||= {})[w] = (forms[k][w] || 0) + 1;
+  }
+  const keywords = Object.keys(freq).filter(k => freq[k] >= 2).sort((a, b) => freq[b] - freq[a]).slice(0, 20);
+  const word = k => Object.keys(forms[k]).sort((a, b) => forms[k][b] - forms[k][a])[0]; // most used form
+  // Finds any form of a word family as a whole word (not inside "white-headed")
+  const familyRe = k => new RegExp(`(?<![\\w'-])(${Object.keys(forms[k]).map(escapeRe).join("|")})(?![\\w'-])`, "gi");
+  const countIn = (k, s) => (s.match(familyRe(k)) || []).length;
+
+  // Summary: the sentences packed with the most important words, in their original order
+  const scored = sentences.map((s, i) => {
+    const words = s.toLowerCase().match(/[a-z][a-z'-]{3,}/g) || [];
+    const score = words.reduce((sum, w) => sum + (STOP.has(w) ? 0 : freq[stem(w)] || 0), 0) / Math.sqrt(words.length || 1);
+    return { s, i, score };
+  });
+  const count = Math.min(8, Math.max(3, Math.round(sentences.length * 0.2)));
+  const summary = [...scored].sort((a, b) => b.score - a.score).slice(0, count).sort((a, b) => a.i - b.i).map(x => x.s);
+
+  // MCQs: hide an important word in a sentence; wrong options are other important words.
+  // Only sentences that use the word once, so the answer isn't left showing elsewhere.
+  const mcqs = [];
+  const used = new Set();
+  for (const kw of keywords) {
+    if (mcqs.length >= 8) break;
+    const s = sentences.find(x => !used.has(x) && countIn(kw, x) === 1);
+    if (!s) continue;
+    const answer = s.match(familyRe(kw))[0].toLowerCase();
+    const wrong = [];
+    for (const k of shuffle(keywords.filter(k => k !== kw))) {
+      const w = word(k);
+      if (wrong.length < 3 && ![answer, ...wrong].some(o => tooClose(o, w))) wrong.push(w);
+    }
+    if (wrong.length < 3) continue;
+    used.add(s);
+    const options = shuffle([answer, ...wrong]);
+    mcqs.push({ question: s.replace(familyRe(kw), "_____"), options, answer: options.indexOf(answer), sentence: s });
+  }
+
+  // Flashcards: "X is/are/means …" sentences, topped up with fill-in-the-blank cards
+  const cards = [];
+  for (const s of sentences) {
+    if (cards.length >= 10) break;
+    const m = s.match(/^(?:An?|The)?\s*([A-Za-z][\w\s-]{2,40}?)\s+(is|are|means|refers to)\s+(.{10,})$/);
+    if (m && m[1].split(" ").length <= 5) {
+      cards.push({ front: `What ${m[2] === "are" ? "are" : "is"} ${m[1].trim().toLowerCase()}?`, back: s });
+    }
+  }
+  for (const q of mcqs) {
+    if (cards.length >= 10) break;
+    cards.push({ front: `Fill in the blank:\n${q.question}`, back: q.options[q.answer] });
+  }
+
+  // True/false: real sentences, and copies with one important word swapped for another
+  const tf = [];
+  for (const s of shuffle(sentences.filter(x => !used.has(x)))) {
+    if (tf.length >= 6 || keywords.length < 4) break;
+    const kw = keywords.find(k => countIn(k, s) === 1);
+    if (!kw) continue;
+    if (Math.random() < 0.5) { tf.push({ statement: s, answer: true, sentence: s }); continue; }
+    // Swap in a word that isn't a form of the original and isn't already in the sentence
+    const found = s.match(familyRe(kw))[0];
+    const other = shuffle(keywords.filter(k => k !== kw && !countIn(k, s))).map(word).find(w => !tooClose(w, found.toLowerCase()));
+    if (!other) continue;
+    const swap = /^\p{Lu}/u.test(found) ? other[0].toUpperCase() + other.slice(1) : other;
+    tf.push({ statement: s.replace(familyRe(kw), swap), answer: false, sentence: s });
+  }
+
+  return { summary, keywords: keywords.slice(0, 12).map(word), mcqs, cards, tf };
+}
+
+// Rough word family: "buildings" -> "build", "patches" -> "patch", "studies" -> "study"
+function stem(w) {
+  const s = w.replace(/'s?$/, "").replace(/ies$/, "y").replace(/(s|x|z|ch|sh)es$/, "$1").replace(/(?<![su])s$/, "");
+  const t = s.replace(/(ing|ed)$/, "");
+  return t.length >= 4 ? t : s;
+}
+// Two answer choices are too alike if they're forms of one word or one starts with the other
+const tooClose = (a, b) => stem(a) === stem(b) || a.startsWith(b) || b.startsWith(a);
+
+function renderSummary(study) {
+  const box = $("tab-summary");
+  if (!study.summary.length) {
+    delete box.dataset.speak;
+    box.replaceChildren(el("p", { class: "muted" }, "This chapter is too short to summarize."));
+    return;
+  }
+  box.replaceChildren(
+    el("div", { class: "note" }, "ℹ️ These are the chapter's most important-looking sentences, picked by simple rules (no AI)."),
+    el("div", { class: "summary" },
+      el("h3", {}, "⭐ Key sentences"),
+      el("ul", {}, study.summary.map(s => el("li", {}, s))),
+      el("h3", { style: "margin:20px 0 10px" }, "🏷️ Key words"),
+      el("div", { class: "chips" }, study.keywords.map(k => el("span", { class: "chip" }, k)))));
+  box.dataset.speak = "Key sentences. " + study.summary.join(" ");
+}
+
+// Card shown after answering: what you picked, the right answer, and the sentence
+// it came from with the word that matters highlighted
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function explanation(prompt, q, picked, source) {
+  const right = picked === q.answer;
+  const isTF = q.options.length === 2;
+  // Highlight the sentence's words that the question hid or changed
+  const shown = new Set((prompt.toLowerCase().match(/[\p{L}\d'-]+/gu) || []));
+  const quote = q.sentence.split(/([\p{L}\d'-]+)/u)
+    .map((part, i) => i % 2 && !shown.has(part.toLowerCase()) ? el("span", { class: "hl" }, part) : part);
+  return el("div", { class: `explain ${right ? "right" : "wrong"}`, role: "status" },
+    el("div", { class: "head" }, right
+      ? "✨ " + pick(["Spot on!", "Nice work!", "Exactly right!", "You got it!"])
+      : "💡 " + pick(["Not quite!", "So close!", "Almost there!", "Good try!"])),
+    !right && el("div", {},
+      isTF ? "You said " : "You picked ", el("span", { class: "pill bad" }, q.options[picked]),
+      isTF ? ", but it's " : ", but the answer is ", el("span", { class: "pill good" }, q.options[q.answer]), "."),
+    el("div", { class: "quote" }, `📖 ${isTF && q.answer === 1 ? "The real sentence says" : source}: `, quote));
+}
+
+function renderMcqs(study) {
+  const box = $("tab-mcqs");
+  if (!study.mcqs.length) {
+    box.replaceChildren(el("p", { class: "muted" }, "Not enough text in this chapter to make questions."));
+    return;
+  }
+  let answered = 0, correct = 0;
+  const score = el("div", { class: "score" });
+  const update = () => {
+    score.textContent = `Score: ${correct} / ${answered}` +
+      (answered === study.mcqs.length ? `  🎉 Done! You got ${correct} of ${study.mcqs.length}.` : "");
+  };
+  const questions = study.mcqs.map((q, qi) => {
+    const why = el("div");
+    const buttons = q.options.map((opt, oi) => el("button", {
+      class: "option",
+      onclick: () => {
+        buttons.forEach(b => (b.disabled = true));
+        buttons[q.answer].classList.add("correct");
+        if (oi === q.answer) correct++; else buttons[oi].classList.add("wrong");
+        answered++;
+        why.replaceChildren(explanation(q.question, q, oi, "From the chapter"));
+        update();
+      },
+    }, `${"ABCD"[oi]}. ${opt}`));
+    return el("div", { class: "question" },
+      el("div", { class: "q" }, `${qi + 1}. Which word fills the blank? ${q.question}`),
+      el("div", { class: "options" }, buttons), why);
+  });
+  box.replaceChildren(
+    el("div", { class: "note" }, "ℹ️ Fill-in-the-blank questions made from sentences in this chapter (no AI)."),
+    score, ...questions,
+    el("button", { class: "btn", onclick: () => renderMcqs(makeStudyMaterial(chapterText())) }, "🔀 New mix"));
+  update();
+}
+
+function renderFlashcards(study) {
+  const box = $("tab-flashcards");
+  const cards = study.cards;
+  if (!cards.length) {
+    box.replaceChildren(el("p", { class: "muted" }, "Not enough text in this chapter to make flashcards."));
+    return;
+  }
+  let i = 0;
+  const front = el("div", { style: "white-space:pre-line" });
+  const back = el("div");
+  const counter = el("span", { class: "muted" });
+  const card = el("button", { class: "flashcard", onclick: () => card.classList.toggle("flipped") },
+    el("div", { class: "flashcard-inner" },
+      el("div", { class: "face front" }, el("small", {}, "Question"), front, el("small", {}, "Click to flip")),
+      el("div", { class: "face back" }, el("small", {}, "Answer"), back)));
+  const show = () => {
+    card.classList.remove("flipped");
+    front.textContent = cards[i].front;
+    back.textContent = cards[i].back;
+    counter.textContent = `${i + 1} / ${cards.length}`;
+  };
+  box.replaceChildren(el("div", { class: "flash-wrap" }, card,
+    el("div", { class: "flash-nav" },
+      el("button", { class: "btn", onclick: () => { i = (i - 1 + cards.length) % cards.length; show(); } }, "← Previous"),
+      counter,
+      el("button", { class: "btn primary", onclick: () => { i = (i + 1) % cards.length; show(); } }, "Next →"))));
+  show();
+}
+
+// ------------------------------------------------------------------ Quiz ---
+// A 10-question test, one question at a time, with a review of mistakes at the end
+
+function renderQuiz() {
+  const scope = el("select", {},
+    el("option", { value: "chapter" }, "This chapter"),
+    el("option", { value: "book" }, "Whole book"));
+  const scores = el("p", { class: "muted small best-scores" });
+  const showScores = () => {
+    const s = scoresFor()[scope.value === "book" ? "book" : "ch" + current];
+    scores.textContent = s ? `🏆 Best: ${s.best}/${s.bestTotal} · Last time: ${s.last}/${s.lastTotal}` : "No score yet. Your scores are saved here.";
+  };
+  scope.addEventListener("change", showScores);
+  showScores();
+  $("tab-quiz").replaceChildren(
+    el("div", { class: "note" }, "ℹ️ Up to 10 questions, one at a time: fill-in-the-blank and true/false, made from the text (no AI)."),
+    el("div", { class: "quiz-start" },
+      el("label", {}, "Quiz on", scope),
+      el("button", { class: "btn primary", onclick: () => startQuiz(scope.value) }, "▶ Start quiz")),
+    scores);
+}
+
+function startQuiz(scope) {
+  const box = $("tab-quiz");
+  const part = scope === "book" ? "book" : "ch" + current;
+  const study = makeStudyMaterial(scope === "book" ? pages.join("\n") : chapterText());
+  const qs = shuffle([
+    ...study.mcqs.map(q => ({ kind: "Fill in the blank", prompt: q.question, options: q.options, answer: q.answer, sentence: q.sentence })),
+    ...study.tf.map(q => ({ kind: "True or false?", prompt: q.statement, options: ["True", "False"], answer: q.answer ? 0 : 1, sentence: q.sentence })),
+  ]).slice(0, 10);
+  if (!qs.length) {
+    box.replaceChildren(el("p", { class: "muted" }, "Not enough text to make a quiz."),
+      el("button", { class: "btn", onclick: renderQuiz }, "← Back"));
+    return;
+  }
+
+  let i = 0, correct = 0;
+  const missed = [];
+  const show = () => {
+    const q = qs[i];
+    const why = el("div");
+    const next = el("button", { class: "btn primary", hidden: "", onclick: () => (++i < qs.length ? show() : finish()) },
+      i + 1 < qs.length ? "Next →" : "See results");
+    const buttons = q.options.map((opt, oi) => el("button", {
+      class: "option",
+      onclick: () => {
+        buttons.forEach(b => (b.disabled = true));
+        buttons[q.answer].classList.add("correct");
+        if (oi === q.answer) correct++;
+        else { buttons[oi].classList.add("wrong"); missed.push({ q, picked: oi }); }
+        why.replaceChildren(explanation(q.prompt, q, oi, "From the text"));
+        next.hidden = false;
+        next.focus();
+      },
+    }, q.options.length > 2 ? `${"ABCD"[oi]}. ${opt}` : opt));
+    box.replaceChildren(
+      el("div", { class: "quiz-top" }, el("span", {}, `Question ${i + 1} of ${qs.length}`), el("span", { class: "muted" }, `Score: ${correct}`)),
+      el("div", { class: "progress" }, el("div", { style: `width:${(i / qs.length) * 100}%` })),
+      el("div", { class: "question" },
+        el("div", { class: "muted small", style: "margin-bottom:6px" }, q.kind),
+        el("div", { class: "q" }, q.prompt),
+        el("div", { class: "options" }, buttons), why),
+      next);
+  };
+  const finish = () => {
+    const pct = correct / qs.length;
+    const { isBest, first } = saveScore(part, correct, qs.length);
+    renderChapterList();
+    box.replaceChildren(
+      el("div", { class: "quiz-result" },
+        el("div", { class: "big" }, `${correct} / ${qs.length}`),
+        el("p", {}, pct >= 0.8 ? "🎉 Great job!" : pct >= 0.5 ? "👍 Good effort. Review the ones you missed." : "📖 Worth another read, then try again."),
+        isBest && !first && el("div", { class: "new-best" }, "🏅 New best score!")),
+      ...(missed.length ? [el("h3", { style: "margin:0 0 10px" }, "Review your mistakes")] : []),
+      ...missed.map(({ q, picked }) => el("div", { class: "question" },
+        el("div", { class: "q" }, q.prompt),
+        el("div", { class: "small" }, "Your answer: ", el("span", { class: "bad-text" }, q.options[picked]),
+          " · Correct: ", el("span", { class: "good-text" }, q.options[q.answer])),
+        el("div", { class: "muted small", style: "margin-top:8px" }, "📖 From the text: ", q.sentence))),
+      el("div", { class: "quiz-actions" },
+        el("button", { class: "btn primary", onclick: () => startQuiz(scope) }, "🔁 Try again"),
+        el("button", { class: "btn", onclick: renderQuiz }, "← Change quiz")));
+  };
+  show();
+}
+
+// ------------------------------------------------------ Search & highlight ---
+
+let marks = [], markIdx = 0;
+
+function renderReader() {
+  const re = query ? new RegExp(escapeRe(query), "gi") : null;
+  const reader = $("reader");
+  reader.replaceChildren();
+  for (const { page, text } of chapterPages()) {
+    reader.append(el("div", { class: "page-label" }, `Page ${page}`));
+    for (const line of text.split(/\n+/)) {
+      const p = el("p");
+      if (!re) p.append(line);
+      else {
+        let last = 0;
+        for (const m of line.matchAll(re)) {
+          p.append(line.slice(last, m.index), el("mark", {}, m[0]));
+          last = m.index + m[0].length;
+        }
+        p.append(line.slice(last));
+      }
+      reader.append(p);
+    }
+  }
+  marks = [...reader.querySelectorAll("mark")];
+  markIdx = 0;
+  $("searchNav").hidden = !query;
+  updateCount();
+}
+
+function updateCount() {
+  $("searchCount").textContent = marks.length
+    ? `“${query}”: ${markIdx + 1} of ${marks.length}`
+    : `“${query}” isn't in this chapter`;
+}
+
+function goToMark(i) {
+  if (!marks.length) return;
+  marks[markIdx].classList.remove("current");
+  markIdx = (i + marks.length) % marks.length;
+  marks[markIdx].classList.add("current");
+  marks[markIdx].scrollIntoView({ block: "center", behavior: "smooth" });
+  updateCount();
+}
+
+function showSearchResults() {
+  const re = new RegExp(escapeRe(query), "i");
+  const sentences = chapterText().split("\n").filter(line => !isHeading(line)).join(" ")
+    .replace(/\s+/g, " ").split(/(?<=[.!?])\s+/).filter(s => re.test(s)).slice(0, 8);
+  const others = chapters.map((ch, i) => {
+    let n = 0;
+    for (let p = ch.start; p <= ch.end; p++) n += (pages[p - 1].match(new RegExp(escapeRe(query), "gi")) || []).length;
+    return { i, title: ch.title, n };
+  }).filter(c => c.n && c.i !== current);
+
+  $("found").replaceChildren(el("div", {},
+    el("h4", { style: "margin:0 0 8px" }, `What this chapter says about “${query}”`),
+    sentences.length
+      ? el("ul", {}, sentences.map(s => el("li", {}, s)))
+      : el("p", { class: "muted small" }, "It isn't mentioned in this chapter."),
+    others.length > 0 && el("div", {}, el("b", { class: "small" }, "Also found in:"),
+      others.map(c => el("button", { class: "other", onclick: () => { openChapter(c.i); showTab("read"); goToMark(0); } },
+        `${c.title} (${c.n})`)))));
+}
+
+$("searchForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("searchInput").value.trim();
+  if (!chapters.length || q.length < 2) return;
+  query = q;
+  showTab("read");
+  renderReader();
+  goToMark(0);
+  showSearchResults();
+});
+$("searchInput").addEventListener("input", e => { if (!e.target.value && query) clearSearch(); });
+$("prevMatch").addEventListener("click", () => goToMark(markIdx - 1));
+$("nextMatch").addEventListener("click", () => goToMark(markIdx + 1));
+$("clearSearch").addEventListener("click", clearSearch);
+function clearSearch() {
+  query = "";
+  $("searchInput").value = "";
+  renderReader();
+  $("found").replaceChildren(el("p", { class: "muted small" }, "Search for a word using the bar at the top."));
+}
+
+// -------------------------------------------------------------- Listen ---
+
+const synth = window.speechSynthesis;
+let chunks = [], chunkIdx = 0, playing = false, paused = false;
+
+function splitForSpeech(text) {
+  const out = [];
+  let cur = "";
+  for (const s of text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)) {
+    if (cur && (cur + " " + s).length > 220) { out.push(cur); cur = s; }
+    else cur = cur ? `${cur} ${s}` : s;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function speakNext() {
+  if (!playing) return;
+  if (chunkIdx >= chunks.length) { stopListening("Finished ✅"); return; }
+  const u = new SpeechSynthesisUtterance(chunks[chunkIdx]);
+  u.rate = parseFloat($("listenRate").value);
+  u.onend = () => { chunkIdx++; speakNext(); };
+  u.onerror = e => { if (e.error !== "interrupted" && e.error !== "canceled") { chunkIdx++; speakNext(); } };
+  $("listenStatus").textContent = `Reading part ${chunkIdx + 1} of ${chunks.length}…`;
+  synth.speak(u);
+}
+
+function setButtons() {
+  $("playBtn").textContent = playing && !paused ? "⏸ Pause" : paused ? "▶ Resume" : "▶ Play";
+  $("stopBtn").disabled = !playing;
+}
+
+function stopListening(message = "Stopped.") {
+  if (!synth) return;
+  playing = paused = false;
+  synth.cancel();
+  setButtons();
+  $("listenStatus").textContent = message;
+}
+
+if (synth) {
+  $("playBtn").addEventListener("click", () => {
+    if (playing && !paused) { synth.pause(); paused = true; $("listenStatus").textContent = "Paused."; }
+    else if (paused) { synth.resume(); paused = false; }
+    else {
+      const text = $("listenSource").value === "summary" ? $("tab-summary").dataset.speak || "" : chapterText();
+      chunks = splitForSpeech(text);
+      if (!chunks.length) { $("listenStatus").textContent = "Nothing to read in this chapter."; return; }
+      chunkIdx = 0; playing = true; paused = false;
+      speakNext();
+    }
+    setButtons();
+  });
+  $("stopBtn").addEventListener("click", () => stopListening());
+} else {
+  $("listenStatus").textContent = "Your browser doesn't support read-aloud.";
+}
+
+// Reopen the PDF from last time, at the same chapter and tab
+(function restore() {
+  const book = store.get("book");
+  if (!book || !Array.isArray(book.pages) || !book.chapters?.length) return;
+  ({ pages, chapters } = book);
+  bookKey = book.key;
+  const place = store.get("place") || {};
+  tab = place.tab || "read";
+  $("docTitle").textContent = book.name;
+  $("empty").hidden = true;
+  $("workspace").hidden = false;
+  $("forgetBtn").hidden = false;
+  openChapter(Math.min(Math.max(place.current || 0, 0), chapters.length - 1));
+  $("status").textContent = "📂 Reopened from last time.";
+})();
+</script>
+</body>
+</html>
