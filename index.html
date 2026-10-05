@@ -99,6 +99,13 @@
   .reader p { margin: 0 0 12px; }
   mark { background: #ffe68a; border-radius: 3px; }
   mark.current { background: #ffa94d; }
+  /* Read-aloud: the sentence being read, and the word being said (where the voice reports words) */
+  .say { border-radius: 4px; transition: background-color .25s, box-shadow .25s; }
+  .say.speaking {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  ::highlight(spoken-word) { background-color: color-mix(in srgb, var(--accent) 38%, transparent); }
   .search-nav { display: flex; align-items: center; gap: 6px; background: var(--accent-soft); border-radius: 10px; padding: 6px 10px; margin-bottom: 14px; font-size: .9rem; }
   .search-nav[hidden] { display: none; }
   .search-nav span { flex: 1; }
@@ -690,7 +697,6 @@ const tooClose = (a, b) => stem(a) === stem(b) || a.startsWith(b) || b.startsWit
 function renderSummary(study) {
   const box = $("tab-summary");
   if (!study.summary.length) {
-    delete box.dataset.speak;
     box.replaceChildren(el("p", { class: "muted" }, "This chapter is too short to summarize."));
     return;
   }
@@ -698,10 +704,9 @@ function renderSummary(study) {
     el("div", { class: "note" }, "ℹ️ These are the chapter's most important-looking sentences, picked by simple rules (no AI)."),
     el("div", { class: "summary" },
       el("h3", {}, "⭐ Key sentences"),
-      el("ul", {}, study.summary.map(s => el("li", {}, s))),
+      el("ul", {}, study.summary.map(s => el("li", {}, speechNodes(s)))),
       el("h3", { style: "margin:20px 0 10px" }, "🏷️ Key words"),
       el("div", { class: "chips" }, study.keywords.map(k => el("span", { class: "chip" }, k)))));
-  box.dataset.speak = "Key sentences. " + study.summary.join(" ");
 }
 
 // Card shown after answering: what you picked, the right answer, and the sentence
@@ -885,24 +890,48 @@ function renderReader() {
   reader.replaceChildren();
   for (const { page, text } of chapterPages()) {
     reader.append(el("div", { class: "page-label" }, `Page ${page}`));
-    for (const line of text.split(/\n+/)) {
-      const p = el("p");
-      if (!re) p.append(line);
-      else {
-        let last = 0;
-        for (const m of line.matchAll(re)) {
-          p.append(line.slice(last, m.index), el("mark", {}, m[0]));
-          last = m.index + m[0].length;
-        }
-        p.append(line.slice(last));
-      }
-      reader.append(p);
-    }
+    for (const line of text.split(/\n+/)) reader.append(el("p", {}, speechNodes(line, re)));
   }
   marks = [...reader.querySelectorAll("mark")];
   markIdx = 0;
   $("searchNav").hidden = !query;
   updateCount();
+  if (playing) showSpoken(false);  // keep the read-aloud highlight after a search
+}
+
+// Text with search matches wrapped in <mark>
+function withMarks(text, re) {
+  if (!re) return [text];
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    out.push(text.slice(last, m.index), el("mark", {}, m[0]));
+    last = m.index + m[0].length;
+  }
+  out.push(text.slice(last));
+  return out;
+}
+
+// A paragraph split into sentence pieces (<span class="say">) that read-aloud can highlight
+function speechNodes(text, re = null) {
+  return speechPieces(text).flatMap((piece, i) => [i ? " " : null, el("span", { class: "say" }, withMarks(piece, re))]);
+}
+
+// Sentence-sized pieces for reading aloud. Very long sentences are cut at a comma,
+// because some voices stop partway through long text.
+function speechPieces(text) {
+  const out = [];
+  for (const s of text.split(/(?<=[.!?]["')\]]?)\s+/)) {
+    let rest = s;
+    while (rest.length > 220) {
+      const cut = Math.max(rest.lastIndexOf(", ", 220), rest.lastIndexOf("; ", 220));
+      if (cut < 40) break;
+      out.push(rest.slice(0, cut + 1));
+      rest = rest.slice(cut + 2);
+    }
+    if (rest.trim()) out.push(rest);
+  }
+  return out;
 }
 
 function updateCount() {
@@ -965,26 +994,57 @@ function clearSearch() {
 
 const synth = window.speechSynthesis;
 let chunks = [], chunkIdx = 0, playing = false, paused = false;
+let listenTab = "read";  // the tab being read out: "read" (whole chapter) or "summary"
+let utterance = null;    // kept so the browser doesn't drop it mid-sentence
 
-function splitForSpeech(text) {
-  const out = [];
-  let cur = "";
-  for (const s of text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)) {
-    if (cur && (cur + " " + s).length > 220) { out.push(cur); cur = s; }
-    else cur = cur ? `${cur} ${s}` : s;
+// The sentence pieces of the tab being read; chunks[i] is the text of pieces[i]
+const spokenPieces = () => $("tab-" + listenTab).querySelectorAll(".say");
+
+// Highlight the sentence being read and scroll it into view if it's off screen
+function showSpoken(scroll = true) {
+  document.querySelectorAll(".say.speaking").forEach(s => s.classList.remove("speaking"));
+  if (window.CSS?.highlights) CSS.highlights.delete("spoken-word");
+  const piece = spokenPieces()[chunkIdx];
+  if (!piece) return;
+  piece.classList.add("speaking");
+  const r = piece.getBoundingClientRect();
+  if (scroll && (r.top < innerHeight * 0.15 || r.bottom > innerHeight * 0.85)) {
+    piece.scrollIntoView({ block: "center", behavior: "smooth" });
   }
-  if (cur) out.push(cur);
-  return out;
+}
+
+// Highlight the word being said, for voices that report where they are
+function showSpokenWord(start, length) {
+  const piece = spokenPieces()[chunkIdx];
+  if (!piece || !window.Highlight || !window.CSS?.highlights) return;
+  const text = piece.textContent;
+  const end = start + (length || (text.slice(start).match(/^[\p{L}\p{N}'’-]+/u) || [""])[0].length);
+  // The piece can hold several text nodes (search marks), so find where start/end fall
+  const range = document.createRange();
+  const walk = document.createTreeWalker(piece, NodeFilter.SHOW_TEXT);
+  let pos = 0, started = false, node;
+  while ((node = walk.nextNode())) {
+    const len = node.data.length;
+    if (!started && start < pos + len) { range.setStart(node, start - pos); started = true; }
+    if (started && end <= pos + len) {
+      range.setEnd(node, end - pos);
+      CSS.highlights.set("spoken-word", new Highlight(range));
+      return;
+    }
+    pos += len;
+  }
 }
 
 function speakNext() {
   if (!playing) return;
   if (chunkIdx >= chunks.length) { stopListening("Finished ✅"); return; }
-  const u = new SpeechSynthesisUtterance(chunks[chunkIdx]);
+  const u = utterance = new SpeechSynthesisUtterance(chunks[chunkIdx]);
   u.rate = parseFloat($("listenRate").value);
   u.onend = () => { chunkIdx++; speakNext(); };
   u.onerror = e => { if (e.error !== "interrupted" && e.error !== "canceled") { chunkIdx++; speakNext(); } };
+  u.onboundary = e => { if (e.name === "word" && playing) showSpokenWord(e.charIndex, e.charLength); };
   $("listenStatus").textContent = `Reading part ${chunkIdx + 1} of ${chunks.length}…`;
+  showSpoken();
   synth.speak(u);
 }
 
@@ -997,6 +1057,8 @@ function stopListening(message = "Stopped.") {
   if (!synth) return;
   playing = paused = false;
   synth.cancel();
+  document.querySelectorAll(".say.speaking").forEach(s => s.classList.remove("speaking"));
+  if (window.CSS?.highlights) CSS.highlights.delete("spoken-word");
   setButtons();
   $("listenStatus").textContent = message;
 }
@@ -1005,18 +1067,32 @@ if (synth) {
   $("playBtn").addEventListener("click", () => {
     if (playing && !paused) { synth.pause(); paused = true; $("listenStatus").textContent = "Paused."; }
     else if (paused) { synth.resume(); paused = false; }
-    else {
-      const text = $("listenSource").value === "summary" ? $("tab-summary").dataset.speak || "" : chapterText();
-      chunks = splitForSpeech(text);
-      if (!chunks.length) { $("listenStatus").textContent = "Nothing to read in this chapter."; return; }
-      chunkIdx = 0; playing = true; paused = false;
-      speakNext();
-    }
+    else startListening();
     setButtons();
   });
   $("stopBtn").addEventListener("click", () => stopListening());
+
+  // Picking what to read out opens that tab right away. If it was already
+  // reading, it switches over and carries on reading the new choice.
+  $("listenSource").addEventListener("change", () => {
+    if (!chapters.length) return;
+    const wasPlaying = playing && !paused;
+    if (playing) stopListening("Ready to listen.");
+    showTab($("listenSource").value === "summary" ? "summary" : "read");
+    if (wasPlaying) { startListening(); setButtons(); }
+  });
 } else {
   $("listenStatus").textContent = "Your browser doesn't support read-aloud.";
+}
+
+function startListening() {
+  // Open the tab being read so the highlight can be followed
+  listenTab = $("listenSource").value === "summary" ? "summary" : "read";
+  chunks = [...spokenPieces()].map(s => s.textContent);
+  if (!chunks.length) { $("listenStatus").textContent = "Nothing to read in this chapter."; return; }
+  showTab(listenTab);
+  chunkIdx = 0; playing = true; paused = false;
+  speakNext();
 }
 
 // Reopen the PDF from last time, at the same chapter and tab
